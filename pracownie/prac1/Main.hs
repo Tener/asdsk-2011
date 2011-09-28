@@ -93,6 +93,7 @@ runDaemon = do
               
               let send = do
                      (sock,addr) <- multicastSender (mcastAddress config) (fromIntegral (port config))
+                     setLoopbackMode sock noLoopback
                      let loop = do
                            let msg = "Hello, world"
                            print ("sending",msg)
