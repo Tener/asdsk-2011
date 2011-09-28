@@ -34,30 +34,42 @@ import Control.Concurrent
 import System.Environment
 import System.FilePath
 import System.IO as IO
+import Control.Monad
 
+-- for tests only:
 import Data.ByteString.Char8 ()
 
 type Host = HostName
 type Time = UTCTime
 
-data CLICommand = Quit | Add [Interest] | Del [Interest] deriving (Show,Read) 
+data CLICommand = Info | Quit | Add [Interest] | Del [Interest] deriving (Show,Read) 
 
-data Config = Config { helloInterval :: Int -- ^ the length of hello interval - the time (in seconds) between sending our interests to others
-                     , mcastAddress :: Host -- ^ multicast address
-                     , port :: Int -- ^ port to use
-                     , dieTime :: Int -- ^ number of intervals before the host is killed by inactivity
-                     , quiet :: Bool -- ^ should the deamon be quiet? true by default
-                     , localSocketPath :: FilePath -- ^ path to local control socket
-                     }
-            deriving (Data, Typeable)
+-- cli config
+data CConfig = CConfig { localSocket :: FilePath 
+                       , quit :: Bool
+                       , add :: [String]
+                       , del :: [String]
+                       , info :: Bool
+                       }
+             deriving (Data,Typeable,Read,Show)
+
+-- server config
+data SConfig = SConfig { helloInterval :: Int -- ^ the length of hello interval - the time (in seconds) between sending our interests to others
+                       , mcastAddress :: Host -- ^ multicast address
+                       , port :: Int -- ^ port to use
+                       , dieTime :: Int -- ^ number of intervals before the host is killed by inactivity
+                       , quiet :: Bool -- ^ should the deamon be quiet? true by default
+                       , localSocketPath :: FilePath -- ^ path to local control socket
+                       }
+               deriving (Data,Typeable,Read,Show)
 
 data OtherHost = Other { lastHeard :: Time -- ^ last time the host was heard from
                        , interestedIn :: Interests -- ^ lists of items this system is interested in
                        , timeoutThread :: ThreadId -- ^ thread that will kill this entry upon timeout
                        }
 
-instance Default Config where
-    def = Config { helloInterval = 3
+instance Default SConfig where
+    def = SConfig { helloInterval = 3
                  , mcastAddress = "224.0.0.213"
                  , port = 6969
                  , dieTime = 6
@@ -65,12 +77,20 @@ instance Default Config where
                  , localSocketPath = "/tmp/pwz_tener.sock"
                  }
 
+instance Default CConfig where
+    def = CConfig { localSocket = localSocketPath def
+                  , quit = False
+                  , add = []
+                  , del = []
+                  , info = True
+                  }
+
 type Interest = [Word8]
 type Interests = Set Interest
 type OtherHosts = Map Host OtherHost
 
 -- | state of a running daemon.
-data DaemonState = DState { configuration :: Config -- ^ current configuration
+data DaemonState = DState { configuration :: SConfig -- ^ current configuration
                           , conversants :: TVar OtherHosts -- ^ list of systems that have send their interests. will be mutated by 
                                                              --   other threads, hence 'TVar'.
                           , myInterests :: TVar Interests -- ^ our own interests
@@ -86,6 +106,10 @@ runDaemon = do
   config <- cmdArgs def
   conv <- newTVarIO Map.empty
   myInt <- newTVarIO (Set.fromList [[1],[2],[3]])
+  quitTVar <- newTVarIO False
+  let whileGo f = do
+              b <- readTVarIO quitTVar
+              unless b f
   let _dstate = DState config conv myInt
 
   let -- UDP server
@@ -94,7 +118,7 @@ runDaemon = do
               let send = do
                      (sock,addr) <- multicastSender (mcastAddress config) (fromIntegral (port config))
                      setLoopbackMode sock noLoopback
-                     let loop = do
+                     let loop = whileGo $ do
                            let msg = "Hello, world"
                            print ("sending",msg)
                            sendTo sock msg addr
@@ -103,7 +127,7 @@ runDaemon = do
                      loop
                   rec = do
                      sock <- multicastReceiver (mcastAddress config) (fromIntegral (port config))
-                     let loop = do
+                     let loop = whileGo $ do
                            foo <- recvFrom sock 1024
                            print ("received", foo)
                            loop
@@ -146,19 +170,32 @@ runDaemon = do
             -- let socketAddress = SockAddrUnix (localSocketPath config)
             -- bindSocket sock socketAddress
             sock <- listenOn (UnixSocket (localSocketPath config))
-            let loop = do
+            let loop = whileGo $ do
                   (conn, _, _) <- Network.accept sock
                   cont <- IO.hGetContents conn
                   print ("received",cont)
+                  case maybeRead cont of
+                    Nothing -> print ("malformed command",cont)
+                    Just Quit -> atomically $ writeTVar quitTVar True
+                    Just (Add add) -> atomically $ do
+                                        mi <- readTVar myInt
+                                        writeTVar myInt (Set.union mi (Set.fromList add))
+                    Just (Del del) -> atomically $ do
+                                        mi <- readTVar myInt
+                                        writeTVar myInt (Set.difference mi (Set.fromList del))
+                    Just Info -> do
+                      mi <- readTVarIO myInt
+                      IO.hPrint conn ("mine",mi) 
+                  print =<< readTVarIO myInt
                   -- case cont of
                   --   "quit" -> atomically $ writeTVar quitVar True
                   --   ""
                   hClose conn
                   loop
-            forkIO loop
-            return ()
+            loop
+            sClose sock
 
-  server_udp
+  forkIO server_udp
   server_cli
 
   Timeout.threadDelay (1 Timeout.# Day)
@@ -172,6 +209,10 @@ updateFromSystem addr ints = do
   return ()
   
 runCLI = do
+  
+  Network.sendTo ""  (UnixSocket (localSocketPath def)) "foo"
+  Network.sendTo ""  (UnixSocket (localSocketPath def)) (show Info)
+  Network.sendTo ""  (UnixSocket (localSocketPath def)) (show Quit)
   Network.sendTo ""  (UnixSocket (localSocketPath def)) "foo"
  
 
