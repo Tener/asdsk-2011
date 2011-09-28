@@ -11,5 +11,5 @@ Cabal-version:       >=1.2
 
 Executable asdsk-prac1
   Main-is:             Main.hs
-  Build-depends:       base, network, data-default, blaze-builder, bytestring, containers, cmdargs, stm
+  Build-depends:       base, network, data-default, blaze-builder, bytestring, containers, cmdargs, stm, filepath, time, data-timeout
 
