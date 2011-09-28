@@ -1,0 +1,15 @@
+Name:                asdsk-prac1
+Version:             0.1
+Homepage:            https://github.com/Tener/asdsk-2011
+License:             BSD3
+License-file:        LICENSE
+Author:              Krzysztof Skrzętnicki
+Maintainer:          gtener@gmail.com
+Category:            Network
+Build-type:          Simple
+Cabal-version:       >=1.2
+
+Executable asdsk-prac1
+  Main-is:             Main.hs
+  Build-depends:       base, network, data-default, blaze-builder, bytestring, containers, cmdargs, stm
+
