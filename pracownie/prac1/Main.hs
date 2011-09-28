@@ -94,7 +94,9 @@ runDaemon = do
               let send = do
                      (sock,addr) <- multicastSender (mcastAddress config) (fromIntegral (port config))
                      let loop = do
-                           sendTo sock "Hello, world" addr
+                           let msg = "Hello, world"
+                           print ("sending",msg)
+                           sendTo sock msg addr
                            Timeout.threadDelay (fromIntegral (helloInterval config) Timeout.# Second)
                            loop
                      loop
