@@ -47,8 +47,8 @@ data CLICommand = Info | Quit | Add [Interest] | Del [Interest] deriving (Show,R
 -- cli config
 data CConfig = CConfig { localSocket :: FilePath 
                        , quit :: Bool
-                       , add :: [String]
-                       , del :: [String]
+                       , add :: String
+                       , del :: String
                        , info :: Bool
                        }
              deriving (Data,Typeable,Read,Show)
@@ -209,11 +209,12 @@ updateFromSystem addr ints = do
   return ()
   
 runCLI = do
+  config <- cmdArgs def
   
-  Network.sendTo ""  (UnixSocket (localSocketPath def)) "foo"
-  Network.sendTo ""  (UnixSocket (localSocketPath def)) (show Info)
-  Network.sendTo ""  (UnixSocket (localSocketPath def)) (show Quit)
-  Network.sendTo ""  (UnixSocket (localSocketPath def)) "foo"
+  Network.sendTo ""  (UnixSocket (localSocket config)) "foo"
+  Network.sendTo ""  (UnixSocket (localSocket config)) (show Info)
+  Network.sendTo ""  (UnixSocket (localSocket config)) (show Quit)
+  Network.sendTo ""  (UnixSocket (localSocket config)) "foo"
  
 
 main = withSocketsDo $ do
