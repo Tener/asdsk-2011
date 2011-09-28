@@ -17,6 +17,10 @@ import Network hiding (sendTo, recvFrom)
 import qualified Network
 import Network.Socket hiding (send, sendTo, recv, recvFrom)
 import Network.Socket.ByteString
+-- network-multicast
+import Network.Multicast
+-- utility-ht
+import Text.Read.HT (maybeRead)
 -- base etc.
 import Data.Function
 import Data.Map (Map)
@@ -31,8 +35,12 @@ import System.Environment
 import System.FilePath
 import System.IO as IO
 
+import Data.ByteString.Char8 ()
+
 type Host = HostName
 type Time = UTCTime
+
+data CLICommand = Quit | Add [Interest] | Del [Interest] deriving (Show,Read) 
 
 data Config = Config { helloInterval :: Int -- ^ the length of hello interval - the time (in seconds) between sending our interests to others
                      , mcastAddress :: Host -- ^ multicast address
@@ -49,7 +57,7 @@ data OtherHost = Other { lastHeard :: Time -- ^ last time the host was heard fro
                        }
 
 instance Default Config where
-    def = Config { helloInterval = 30
+    def = Config { helloInterval = 3
                  , mcastAddress = "224.0.0.213"
                  , port = 6969
                  , dieTime = 6
@@ -77,11 +85,33 @@ runDaemon :: IO ()
 runDaemon = do
   config <- cmdArgs def
   conv <- newTVarIO Map.empty
-  myInt <- newTVarIO Set.empty 
+  myInt <- newTVarIO (Set.fromList [[1],[2],[3]])
   let _dstate = DState config conv myInt
 
   let -- UDP server
       server_udp = do
+              
+              let send = do
+                     (sock,addr) <- multicastSender (mcastAddress config) (fromIntegral (port config))
+                     let loop = do
+                           sendTo sock "Hello, world" addr
+                           Timeout.threadDelay (fromIntegral (helloInterval config) Timeout.# Second)
+                           loop
+                     loop
+                  rec = do
+                     sock <- multicastReceiver (mcastAddress config) (fromIntegral (port config))
+                     let loop = do
+                           foo <- recvFrom sock 1024
+                           print ("received", foo)
+                           loop
+                     loop
+                        
+              forkIO send
+              forkIO rec
+
+              return ()
+
+      server_udp' = do
               sock <- socket AF_INET Datagram defaultProtocol -- (mcastAddress config)
               addr <- inet_addr (mcastAddress config)
               let socketAddress = SockAddrInet (fromIntegral (port config)) addr
@@ -93,13 +123,15 @@ runDaemon = do
                         go_rec
                   -- UDP sender thread
                   go_send = do
-                        Timeout.threadDelay (fromIntegral (helloInterval config) Timeout.# Second)
                         sendInterestsNow
+                        Timeout.threadDelay (fromIntegral (helloInterval config) Timeout.# Second)
                         go_send
                   -- send current interests NOW
                   sendInterestsNow = do
                      int <- readTVarIO myInt
-                     sendAllTo sock (toByteString $ serializeInterests int) socketAddress
+                     let msg = (toByteString $ serializeInterests int)
+                     print ("sending now", msg)
+                     sendAllTo sock msg socketAddress
 
               bindSocket sock socketAddress
               forkIO go_rec
@@ -115,6 +147,9 @@ runDaemon = do
                   (conn, _, _) <- Network.accept sock
                   cont <- IO.hGetContents conn
                   print ("received",cont)
+                  -- case cont of
+                  --   "quit" -> atomically $ writeTVar quitVar True
+                  --   ""
                   hClose conn
                   loop
             forkIO loop
