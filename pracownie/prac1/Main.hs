@@ -27,6 +27,7 @@ import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Data.Word
 import Data.Char
+import Data.ByteString (ByteString)
 import Data.Monoid
 import Control.Concurrent.STM
 import Control.Concurrent
@@ -43,10 +44,10 @@ import Data.ByteString.Char8 ()
 import DataTypes
 import Parser
 
-serializeInterests :: Interests -> Builder
-serializeInterests (Set.toList -> ints) =
+serializeInterests :: Interests -> ByteString -- Builder
+serializeInterests (Set.toList -> ints) = toByteString $ (
   fromInt32be (fromIntegral (length ints)) `mappend`
-  (mconcat $ map (\ i -> fromWord8s i `mappend` fromWord8 0 ) ints)
+  (mconcat $ map (\ i -> fromWord8s i `mappend` fromWord8 0 ) ints))
 
 interestFromString :: String -> Interest
 interestFromString = map (fromIntegral . ord)
@@ -73,9 +74,11 @@ runDaemon = do
 
               let send = do
                      (sock,addr) <- multicastSender (mcastAddress config) (fromIntegral (port config))
-                     setLoopbackMode sock noLoopback
+--                     setLoopbackMode sock noLoopback
                      let loop = whileGo $ do
-                           let msg = "Hello, world"
+                           let msgBad = "Hello, world"
+                           my <- readTVarIO myInt
+                           let msg = serializeInterests (my :: Interests)
                            print ("sending",msg)
                            sendTo sock msg addr
                            Timeout.threadDelay (fromIntegral (helloInterval config) Timeout.# Second)
@@ -84,8 +87,44 @@ runDaemon = do
                   rec = do
                      sock <- multicastReceiver (mcastAddress config) (fromIntegral (port config))
                      let loop = whileGo $ do
-                           foo <- recvFrom sock 1024
-                           print ("received", foo)
+                           -- foo <- recvFrom sock 1024
+                           (payload, (Sender -> sender)) <- recvFrom sock 65507
+                           -- try parse, update record
+                           print ("received",payload,"from",sender)
+                           now <- getCurrentTime
+                           let parsed = parseInterests payload
+                           case parsed of
+                             Left err -> print ("parse error",err)
+                             Right ints | Set.null ints -> do
+                                         print ("empty record received")
+                                         oldThread <- fmap (Map.lookup sender) (readTVarIO conversants)
+                                         case oldThread of
+                                           Nothing -> return ()
+                                           Just (timeoutThread -> tid) -> killThread tid
+                                         atomically $ do
+                                           convInfo <- readTVar conversants
+                                           writeTVar conversants (Map.delete sender convInfo)
+                                        | otherwise -> do
+                                         print ("parse ok",ints,sender)
+                                         -- check if the record has been present. if yes, kill the old thread. in either case run a new timeout-thread
+                                         oldThread <- fmap (Map.lookup sender) (readTVarIO conversants)
+                                         case oldThread of
+                                           Nothing -> return ()
+                                           Just (timeoutThread -> tid) -> killThread tid
+                                         let timeout = (fromIntegral (dieTime config * helloInterval config)) Timeout.# Second
+                                         tid <- forkIO $ do
+                                             Timeout.threadDelay timeout
+                                             atomically $ do
+                                                    convInfo <- readTVar conversants
+                                                    writeTVar conversants (Map.delete sender convInfo)
+                                         atomically $ do
+                                             convInfo <- readTVar conversants
+                                             writeTVar conversants (Map.insert sender (Other { lastHeard = now
+                                                                                             , interestedIn = ints
+                                                                                             , timeoutThread = tid }) convInfo)
+    
+    
+
 
                            loop
                      loop
@@ -94,65 +133,6 @@ runDaemon = do
               forkIO rec
 
               return ()
-
-      server_udp' = do
-              sock <- socket AF_INET Datagram defaultProtocol -- (mcastAddress config)
-              addr <- inet_addr (mcastAddress config)
-              let socketAddress = SockAddrInet (fromIntegral (port config)) addr
-              let -- UDP receiver thread
-                  go_rec = do
-                        (payload, (Sender -> sender)) <- recvFrom sock 65507
-                        -- try parse, update record
-                        print ("received",payload,"from",sender)
-                        now <- getCurrentTime
-                        let parsed = parseInterests payload
-                        case parsed of
-                          Left err -> print ("parse error",err)
-                          Right ints | Set.null ints -> do
-                                      print ("empty record received")
-                                      oldThread <- fmap (Map.lookup sender) (readTVarIO conversants)
-                                      case oldThread of
-                                        Nothing -> return ()
-                                        Just (timeoutThread -> tid) -> killThread tid
-                                      atomically $ do
-                                        convInfo <- readTVar conversants
-                                        writeTVar conversants (Map.delete sender convInfo)
-                                     | otherwise -> do
-                                      print ("parse ok",ints,sender)
-                                      -- check if the record has been present. if yes, kill the old thread. in either case run a new timeout-thread
-                                      oldThread <- fmap (Map.lookup sender) (readTVarIO conversants)
-                                      case oldThread of
-                                        Nothing -> return ()
-                                        Just (timeoutThread -> tid) -> killThread tid
-                                      let timeout = (fromIntegral (dieTime config * helloInterval config)) Timeout.# Second
-                                      tid <- forkIO $ do
-                                          Timeout.threadDelay timeout
-                                          atomically $ do
-                                                 convInfo <- readTVar conversants
-                                                 writeTVar conversants (Map.delete sender convInfo)
-                                      atomically $ do
-                                          convInfo <- readTVar conversants
-                                          writeTVar conversants (Map.insert sender (Other { lastHeard = now
-                                                                                          , interestedIn = ints
-                                                                                          , timeoutThread = tid }) convInfo)
-
-
-                        go_rec
-                  -- UDP sender thread
-                  go_send = do
-                        sendInterestsNow
-                        Timeout.threadDelay (fromIntegral (helloInterval config) Timeout.# Second)
-                        go_send
-                  -- send current interests NOW
-                  sendInterestsNow = do
-                     int <- readTVarIO myInt
-                     let msg = (toByteString $ serializeInterests int)
-                     print ("sending now", msg)
-                     sendAllTo sock msg socketAddress
-
-              bindSocket sock socketAddress
-              forkIO go_rec
-              forkIO go_send
 
       -- AF_UNIX server for CLI
       server_cli = do
@@ -180,7 +160,7 @@ runDaemon = do
                     Just InfoFull -> do
                       let fun oh = OtherInfo (lastHeard oh) (interestedIn oh)
                       convInfo <- readTVarIO conversants
-                      IO.hPrint conn (Map.mapKeys show $ (Map.map fun convInfo))
+                      IO.hPrint conn (Map.mapKeys (show . fromSender) $ (Map.map fun convInfo))
 
                   IO.hFlush conn
                   print =<< readTVarIO myInt
@@ -220,7 +200,7 @@ getFullInfo handle = do
   case maybeRead cont of
     Nothing -> error ("błąd parsowania (getFullInfo): " ++ show cont)
     Just (others :: OtherHostsInfo) -> mapM_ (\(host,info) -> do
-                                            let header = show host ++ show (interestedIn' info)
+                                            let header = show host --  ++ show (interestedIn' info)
                                             showInterestsAddr header (interestedIn' info)
                                          )
                                          (Map.assocs others) -- showInterestsAddr "Current set of interests:" ints
