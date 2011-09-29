@@ -11,6 +11,9 @@ Cabal-version:       >=1.2
 
 Executable asdsk-prac1
   Main-is:             Main.hs
-  Build-depends:       base, network, data-default, blaze-builder, bytestring, containers, cmdargs, stm, filepath, time, data-timeout, utility-ht, network-multicast
+  Other-modules:       DataTypes, Parser
+  Build-depends:       base, network, data-default, blaze-builder, bytestring, containers, 
+                       cmdargs, stm, filepath, time, data-timeout, utility-ht, network-multicast,
+                       attoparsec, attoparsec-binary
   Ghc-options:         -threaded
 

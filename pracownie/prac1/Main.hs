@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings, ViewPatterns, DeriveDataTypeable, ScopedTypeVariables #-}
+{-# LANGUAGE OverloadedStrings, ViewPatterns, ScopedTypeVariables #-}
 
 module Main where
 
@@ -23,9 +23,7 @@ import Network.Multicast
 import Text.Read.HT (maybeRead)
 -- base etc.
 import Data.Function
-import Data.Map (Map)
 import qualified Data.Map as Map
-import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Word
 import Data.Char
@@ -41,81 +39,29 @@ import Data.List(sort)
 -- for tests only:
 import Data.ByteString.Char8 ()
 
-type Host = HostName
-type Time = UTCTime
-
-data CLICommand = InfoFull | InfoMy | Quit | Add Interest | Del Interest deriving (Show,Read) 
-
--- cli config
-data CConfig = CConfig { localSocket :: FilePath 
-                       , quit :: Bool
-                       , add :: String
-                       , del :: String
-                       , info :: String
-                       }
-             deriving (Data,Typeable,Read,Show)
-
--- server config
-data SConfig = SConfig { helloInterval :: Int -- ^ the length of hello interval - the time (in seconds) between sending our interests to others
-                       , mcastAddress :: Host -- ^ multicast address
-                       , port :: Int -- ^ port to use
-                       , dieTime :: Int -- ^ number of intervals before the host is killed by inactivity
-                       , quiet :: Bool -- ^ should the deamon be quiet? true by default
-                       , localSocketPath :: FilePath -- ^ path to local control socket
-                       }
-               deriving (Data,Typeable,Read,Show)
-
-data OtherHost = Other { lastHeard :: Time -- ^ last time the host was heard from
-                       , interestedIn :: Interests -- ^ lists of items this system is interested in
-                       , timeoutThread :: ThreadId -- ^ thread that will kill this entry upon timeout
-                       }
-                 deriving (Show)
-
--- | almost the same as OtherHost, but without problematic timeout thread
-data OtherHostInfo = OtherInfo { lastHeard' :: Time -- ^ last time the host was heard from
-                               , interestedIn' :: Interests -- ^ lists of items this system is interested in
-                               }
-                     deriving (Data,Typeable,Read,Show)
-
-instance Default SConfig where
-    def = SConfig { helloInterval = 3
-                 , mcastAddress = "224.0.0.213"
-                 , port = 6969
-                 , dieTime = 6
-                 , quiet = True
-                 , localSocketPath = "/tmp/pwz_tener.sock"
-                 }
-
-instance Default CConfig where
-    def = CConfig { localSocket = localSocketPath def
-                  , quit = False
-                  , add = ""
-                  , del = ""
-                  , info = ""
-                  }
-
-type Interest = [Word8]
-type Interests = Set Interest
-type OtherHosts = Map Host OtherHost
-type OtherHostsInfo = Map Host OtherHostInfo
-
--- | state of a running daemon.
-data DaemonState = DState { configuration :: SConfig -- ^ current configuration
-                          , conversants :: TVar OtherHosts -- ^ list of systems that have send their interests. will be mutated by 
-                                                           --   other threads, hence 'TVar'.
-                          , myInterests :: TVar Interests -- ^ our own interests
-                          }
+-- local imports
+import DataTypes
+import Parser
 
 serializeInterests :: Interests -> Builder
-serializeInterests (Set.toList -> ints) = 
+serializeInterests (Set.toList -> ints) =
   fromInt32be (fromIntegral (length ints)) `mappend`
   (mconcat $ map (\ i -> fromWord8s i `mappend` fromWord8 0 ) ints)
+
+interestFromString :: String -> Interest
+interestFromString = map (fromIntegral . ord)
+
+interestToString :: Interest -> String
+interestToString = map (chr . fromIntegral)
+
+operToFunction Add = Set.union
+operToFunction Del = Set.difference
 
 runDaemon :: IO ()
 runDaemon = do
   config <- cmdArgs def
   conversants <- newTVarIO Map.empty
-  myInt <- newTVarIO (Set.fromList [[1],[2],[3]])
+  myInt <- newTVarIO (Set.fromList $ map interestFromString $ words "kawa herbata sen")
   quitTVar <- newTVarIO False
   let whileGo f = do
               b <- readTVarIO quitTVar
@@ -124,7 +70,7 @@ runDaemon = do
 
   let -- UDP server
       server_udp = do
-              
+
               let send = do
                      (sock,addr) <- multicastSender (mcastAddress config) (fromIntegral (port config))
                      setLoopbackMode sock noLoopback
@@ -140,9 +86,10 @@ runDaemon = do
                      let loop = whileGo $ do
                            foo <- recvFrom sock 1024
                            print ("received", foo)
+
                            loop
                      loop
-                        
+
               forkIO send
               forkIO rec
 
@@ -154,9 +101,42 @@ runDaemon = do
               let socketAddress = SockAddrInet (fromIntegral (port config)) addr
               let -- UDP receiver thread
                   go_rec = do
-                        (payload, sender) <- recvFrom sock 65507
+                        (payload, (Sender -> sender)) <- recvFrom sock 65507
                         -- try parse, update record
                         print ("received",payload,"from",sender)
+                        now <- getCurrentTime
+                        let parsed = parseInterests payload
+                        case parsed of
+                          Left err -> print ("parse error",err)
+                          Right ints | Set.null ints -> do
+                                      print ("empty record received")
+                                      oldThread <- fmap (Map.lookup sender) (readTVarIO conversants)
+                                      case oldThread of
+                                        Nothing -> return ()
+                                        Just (timeoutThread -> tid) -> killThread tid
+                                      atomically $ do
+                                        convInfo <- readTVar conversants
+                                        writeTVar conversants (Map.delete sender convInfo)
+                                     | otherwise -> do
+                                      print ("parse ok",ints,sender)
+                                      -- check if the record has been present. if yes, kill the old thread. in either case run a new timeout-thread
+                                      oldThread <- fmap (Map.lookup sender) (readTVarIO conversants)
+                                      case oldThread of
+                                        Nothing -> return ()
+                                        Just (timeoutThread -> tid) -> killThread tid
+                                      let timeout = (fromIntegral (dieTime config * helloInterval config)) Timeout.# Second
+                                      tid <- forkIO $ do
+                                          Timeout.threadDelay timeout
+                                          atomically $ do
+                                                 convInfo <- readTVar conversants
+                                                 writeTVar conversants (Map.delete sender convInfo)
+                                      atomically $ do
+                                          convInfo <- readTVar conversants
+                                          writeTVar conversants (Map.insert sender (Other { lastHeard = now
+                                                                                          , interestedIn = ints
+                                                                                          , timeoutThread = tid }) convInfo)
+
+
                         go_rec
                   -- UDP sender thread
                   go_send = do
@@ -187,33 +167,23 @@ runDaemon = do
                   case maybeRead cont of
                     Nothing -> print ("malformed command",cont)
                     Just Quit -> atomically $ writeTVar quitTVar True
-                    Just (Add add) -> do
+                    Just (Oper op add) -> do
                                    mine <- atomically $ do
                                         mi <- readTVar myInt
-                                        writeTVar myInt (Set.union mi (Set.singleton add))
-                                        return mi
-                    Just (Del add) -> do
-                                   mine <- atomically $ do
-                                        mi <- readTVar myInt
-                                        writeTVar myInt (Set.difference mi (Set.singleton add))
-                                        return mi
-                                        
-                                                   
-                    Just (Del del) -> atomically $ do
-                                        mi <- readTVar myInt
-                                        writeTVar myInt (Set.difference mi (Set.singleton del))
+                                        let mi' = (operToFunction op mi (Set.singleton add))
+                                        writeTVar myInt mi'
+                                        return mi'
+                                   IO.hPrint conn mine
                     Just InfoMy -> do
                       mi <- readTVarIO myInt
-                      IO.hPrint conn ("mine",mi) 
+                      IO.hPrint conn ("mine",mi)
                     Just InfoFull -> do
                       let fun oh = OtherInfo (lastHeard oh) (interestedIn oh)
                       convInfo <- readTVarIO conversants
-                      IO.hPrint conn (Map.map fun convInfo)
+                      IO.hPrint conn (Map.mapKeys show $ (Map.map fun convInfo))
+
                   IO.hFlush conn
                   print =<< readTVarIO myInt
-                  -- case cont of
-                  --   "quit" -> atomically $ writeTVar quitVar True
-                  --   ""
                   hClose conn
                   loop
             loop
@@ -231,19 +201,16 @@ updateFromSystem addr ints = do
 --    conversants
 
   return ()
-  
+
 ---------- CLI part
 
 -- | helper for pretty printing
 showInterestsAddr :: String -> Interests -> IO ()
 showInterestsAddr whom (Set.toList -> ints) = do
   putStrLn whom
-  let chr' :: Interest -> String
-      chr' is = map (chr . fromIntegral) is
-
   mapM_ (\is -> do
            putStr "   "
-           putStrLn (chr' is)) ints
+           putStrLn (interestToString is)) ints
 
 -- | get information on all the systems (update time, interests)
 getFullInfo handle = do
@@ -286,9 +253,9 @@ runCLI = do
   let ord' = map (fromIntegral . ord)
   case config of
     (quit -> True) -> IO.hPrint handle Quit
-    (ord' . info -> str) | not (null str) -> getSelectedInfo handle str
-    (ord' . add -> str) | not (null str) -> sendUpdateGetMine handle (Add str)
-    (ord' . del -> str) | not (null str) -> sendUpdateGetMine handle (Del str)
+    (interestFromString . info -> str) | not (null str) -> getSelectedInfo handle str
+    (interestFromString . add -> str) | not (null str) -> sendUpdateGetMine handle (Oper Add str)
+    (interestFromString . del -> str) | not (null str) -> sendUpdateGetMine handle (Oper Del str)
     _ -> getFullInfo handle
   IO.hClose handle
 
@@ -301,5 +268,3 @@ main = withSocketsDo $ do
      "pwzd" -> runDaemon
      "pwz" -> runCLI
      _ -> return ()
-
-
