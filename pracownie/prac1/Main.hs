@@ -28,6 +28,7 @@ import qualified Data.Map as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Word
+import Data.Char
 import Data.Monoid
 import Control.Concurrent.STM
 import Control.Concurrent
@@ -42,14 +43,14 @@ import Data.ByteString.Char8 ()
 type Host = HostName
 type Time = UTCTime
 
-data CLICommand = Info | Quit | Add [Interest] | Del [Interest] deriving (Show,Read) 
+data CLICommand = Info | Quit | Add Interest | Del Interest deriving (Show,Read) 
 
 -- cli config
 data CConfig = CConfig { localSocket :: FilePath 
                        , quit :: Bool
                        , add :: String
                        , del :: String
-                       , info :: Bool
+                       , info :: String
                        }
              deriving (Data,Typeable,Read,Show)
 
@@ -80,9 +81,9 @@ instance Default SConfig where
 instance Default CConfig where
     def = CConfig { localSocket = localSocketPath def
                   , quit = False
-                  , add = []
-                  , del = []
-                  , info = True
+                  , add = ""
+                  , del = ""
+                  , info = ""
                   }
 
 type Interest = [Word8]
@@ -179,10 +180,10 @@ runDaemon = do
                     Just Quit -> atomically $ writeTVar quitTVar True
                     Just (Add add) -> atomically $ do
                                         mi <- readTVar myInt
-                                        writeTVar myInt (Set.union mi (Set.fromList add))
+                                        writeTVar myInt (Set.union mi (Set.singleton add))
                     Just (Del del) -> atomically $ do
                                         mi <- readTVar myInt
-                                        writeTVar myInt (Set.difference mi (Set.fromList del))
+                                        writeTVar myInt (Set.difference mi (Set.singleton del))
                     Just Info -> do
                       mi <- readTVarIO myInt
                       IO.hPrint conn ("mine",mi) 
@@ -208,20 +209,40 @@ updateFromSystem addr ints = do
 
   return ()
   
+---------- CLI part
+
+showInterestsAddr whom ints = do -- "Current set of interests:"
+  putStrLn whom
+  let chr' :: Interest -> String
+      chr' is = map (chr . fromIntegral) is
+
+  mapM_ (\is -> do
+           putStr "   "
+           putStrLn (chr' is)) ints
+
+getFullInfo = return ()
+getInfo stuff = return ()
+sendGetCurrent msg = return ()
+
+runCLI :: IO ()
 runCLI = do
   config <- cmdArgs def
-  
-  Network.sendTo ""  (UnixSocket (localSocket config)) "foo"
-  Network.sendTo ""  (UnixSocket (localSocket config)) (show Info)
-  Network.sendTo ""  (UnixSocket (localSocket config)) (show Quit)
-  Network.sendTo ""  (UnixSocket (localSocket config)) "foo"
- 
+  let ord' = map (fromIntegral . ord)
+  case config of
+    (quit -> True) -> Network.sendTo ""  (UnixSocket (localSocket config)) (show Quit)
+    (info -> str) | not (null str) -> getInfo str
+    (ord' . add -> str) | not (null str) -> sendGetCurrent (Add str)
+    (ord' . del -> str) | not (null str) -> sendGetCurrent (Del str)
+    _ -> getFullInfo
 
+---------- Main program, dispatcher
+
+main :: IO ()
 main = withSocketsDo $ do
    prog <- getProgName
    case prog of
      "pwzd" -> runDaemon
      "pwz" -> runCLI
-
+     _ -> return ()
 
 
