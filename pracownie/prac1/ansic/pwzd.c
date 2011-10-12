@@ -11,9 +11,7 @@
 #include <sys/types.h>
 #include <sys/un.h>
 #include <unistd.h>
-// #include <arpa/net.h>
 
-// #include <json/json.h>
 #include "pwz.h"
 
 /*
@@ -28,7 +26,7 @@
 
  */
 
-void udp_daemon(daemon_opts opts);
+int udp_daemon(daemon_opts opts);
 
 void print_help()
 {
@@ -66,8 +64,8 @@ int main(int argc, char ** argv)
   opts.multicast_addr = MULTICAST_ADDR;
   opts.config_file = NULL;
   opts.multicast_loop = 1;
-  opts.hello_interval = 6;
-  opts.die_time = 5;
+  opts.hello_interval = 30;
+  opts.die_time = 6;
 
   //opterr = 0;
   int c;
@@ -132,16 +130,28 @@ int main(int argc, char ** argv)
       printf("    multicast loop: %s\n", opts.multicast_loop ? "true" : "false");
     }
 
-  udp_daemon(opts);
-
-  return 0;
+  return udp_daemon(opts);
 }
 
-void udp_daemon(daemon_opts opts)
+int udp_daemon(daemon_opts opts)
 {
+   void destroy_host_info(host_info * hi)
+   {
+     if (!hi)
+       return;
+     if (hi->interests)
+       g_hash_table_destroy(hi->interests);
+     free(hi);
+   }
+
+   void destroy_host_info_(gpointer data)
+   {
+     destroy_host_info(data);
+   }
+
    daemon_data data;
    data.my_interests = g_hash_table_new_full(g_str_hash,g_str_equal,free,NULL);
-   data.other_interests = g_hash_table_new_full(g_str_hash,g_str_equal,free,NULL); // Key = *char, Value = *host_info
+   data.other_interests = g_hash_table_new_full(g_str_hash,g_str_equal,free,destroy_host_info_); // Key = *char, Value = *host_info
 
    /*
       Functions operating on interests.
@@ -156,24 +166,68 @@ void udp_daemon(daemon_opts opts)
    void add_interest(GHashTable * ints, char * in)
    {
      char * keyvalue = strdup(in);
-     // to make sure there are no duplicates
-     char verb = opts.verbose;
-     opts.verbose = 0;
-     del_interest(ints, keyvalue);
-     opts.verbose = verb;
-
      if (opts.verbose) printf("Adding interest %p='%s'\n", keyvalue, keyvalue);
-     g_hash_table_insert(ints, keyvalue, keyvalue);
+     g_hash_table_replace(ints, keyvalue, keyvalue);
    }
 
-   void destroy_host_info(host_info * hi)
+   void remove_outdated_entries()
    {
-     if (!hi)
-       return;
-     if (hi->interests)
-       g_hash_table_destroy(hi->interests);
-     free(hi);
+     time_t now = time(NULL);
+     gboolean aux(void * key, void * value, void * user_data)
+     {
+       char * host = key;
+       host_info * hi = value;
+       int remove = ((now - hi->last_seen) > (opts.hello_interval * opts.die_time));
+
+       if (remove && opts.verbose)
+         {
+           printf("Remove outdated entry for host %s.\n", host);
+         }
+
+       return remove;
+     }
+     g_hash_table_foreach_remove(data.other_interests, aux, NULL);
    }
+
+   /*
+      Fill my interest table
+   */
+
+   if (opts.config_file)
+   {
+     printf("Loading config file.\n");
+
+     FILE * f = fopen(opts.config_file,"r");
+     if (!f)
+       {
+         fprintf(stderr, "Could not open config file: %s\n", opts.config_file);
+         return 1;
+       }
+
+     GString * config = g_string_new(NULL);
+     while(!feof(f))
+       {
+         char c = fgetc(f);
+         if (c == EOF)
+           break;
+
+         config = g_string_append_c(config, c);
+         if (!c)
+           {
+             add_interest(data.my_interests, config->str);
+             config = g_string_erase(config, 0, -1);
+           }
+       }
+     fclose(f);
+
+     // trailing item
+     if (strlen(config->str))
+       {
+             add_interest(data.my_interests, config->str);
+       }
+     g_string_free(config, TRUE);
+   }
+
 
    ////
 
@@ -262,10 +316,10 @@ void udp_daemon(daemon_opts opts)
      char addrbuf[INET_ADDRSTRLEN];
      inet_ntop(AF_INET, &(saddr.sin_addr), addrbuf, INET_ADDRSTRLEN);
 
-     if (opts.verbose) 
+     if (opts.verbose)
        {
          printf("SENDER: %s\n"
-                "PAYLOAD: '%s'\n", 
+                "PAYLOAD: '%s'\n",
                 addrbuf, buffer);
        }
 
@@ -301,7 +355,7 @@ void udp_daemon(daemon_opts opts)
              cleanup();
              return;
            }
-          
+
          // insert found argument
          add_interest(hi.interests, ptr);
          // move pointer, update count etc.
@@ -406,7 +460,7 @@ void udp_daemon(daemon_opts opts)
 
          time_t diff = now-(hi->last_seen);
 
-         fprintf(connfile_w, "%s  %d:%d\n", host, (int)(diff / 60), (int)(diff % 60));
+         fprintf(connfile_w, "%s  %d:%02d\n", host, (int)(diff / 60), (int)(diff % 60));
 
          void one_interest(void * key, void * value, void * user_data)
          {
@@ -415,7 +469,7 @@ void udp_daemon(daemon_opts opts)
 
          void print_one(void * data, void * userdata)
          {
-           fprintf(connfile_w, "%s\n", (char*)data);
+           fprintf(connfile_w, "   %s\n", (char*)data);
          }
 
          g_hash_table_foreach(hi->interests, one_interest, NULL);
@@ -480,15 +534,28 @@ void udp_daemon(daemon_opts opts)
      saddr.sin_addr.s_addr = inet_addr(opts.multicast_addr);
      saddr.sin_port = htons(opts.port);
 
-     char buffer[1024];
-     *((uint32_t *) buffer) = htonl((uint32_t)1);
-     // put some data in buffer
-     strcpy(buffer+4, "Hello world from server");
+     // create packet
+     uint32_t count = 0;
+     GString * msg = g_string_new(NULL);
+     void append(void * key, void * val, void * user_data)
+     {
+       msg = g_string_append(msg, (char*)val);
+       msg = g_string_append_c(msg, '\0');
+       count++;
+     }
+     g_hash_table_foreach(data.my_interests, append, NULL);
+
+     ssize_t msglen = 4 + msg->len;
+     char * buffer = malloc(msglen);
+     *((uint32_t *) buffer) = htonl(count);
+
+     memcpy(buffer+4, msg->str, msg->len);
 
      // send packet
-     sendto(sock, buffer, 4+strlen(buffer+4)+1, 0,
+     sendto(sock, buffer, msglen, 0,
             (struct sockaddr *)&saddr, socklen);
-
+     free(buffer);
+     g_string_free(msg, TRUE);
    }
 
    void cleanup()
@@ -504,6 +571,9 @@ void udp_daemon(daemon_opts opts)
 
    atexit(cleanup);
 
+   // at start send single information
+   do_send();
+
    while(can_continue)
      {
        fd_set readfs;
@@ -512,6 +582,9 @@ void udp_daemon(daemon_opts opts)
        FD_SET(cli_sock, &readfs);
 
        select(cli_sock+1, &readfs, NULL, NULL, &tv);
+
+       // remove outdated entries
+       remove_outdated_entries();
 
        int cont = 0;
 
@@ -534,4 +607,5 @@ void udp_daemon(daemon_opts opts)
          }
      }
 
+   return 0;
 }
