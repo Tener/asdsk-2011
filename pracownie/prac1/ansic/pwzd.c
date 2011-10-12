@@ -372,15 +372,20 @@ int udp_daemon(daemon_opts opts)
              return;
        }
 
-     // all is ok, allocate memory for new host info, copy it, insert into hash table
-     host_info * hi_tmp = malloc(sizeof(host_info));
-     *hi_tmp = hi;
-     g_hash_table_insert(data.other_interests, strdup(addrbuf), hi_tmp);
+     // check if the interest list isn't actually empty. if yes, this is a "goodbye packet". handle it.
+     if (!actual_count)
+       {
+         if (opts.verbose) printf("Goodbye packet received.\n");
+         g_hash_table_remove(data.other_interests, addrbuf);
+       }
+     else // all is ok, allocate memory for new host info, copy it, insert into hash table
+       {
+         host_info * hi_tmp = malloc(sizeof(host_info));
+         *hi_tmp = hi;
+         g_hash_table_replace(data.other_interests, strdup(addrbuf), hi_tmp);         
+       }
 
      cleanup();
-
-     //adding updated value
-     //g_hash_table_insert(data.other_interests, strdup(addrbuf), hi);
    }
 
    // serve cli client in blocking fashion.
@@ -606,6 +611,10 @@ int udp_daemon(daemon_opts opts)
            do_send();
          }
      }
+
+   // remove our interests
+   g_hash_table_remove_all(data.my_interests);
+   do_send();
 
    return 0;
 }
