@@ -26,7 +26,7 @@ enum command {
 
 struct client_opts {
   char * control_socket_path; // -l
-  char * add_del_arg; // argument for -a / -d / -i
+  char * command_arg; // argument for -a / -d / -i
   enum command cmd;
 };
 
