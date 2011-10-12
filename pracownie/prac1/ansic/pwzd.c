@@ -1,3 +1,6 @@
+// Author: Krzysztof Skrzętnicki
+// LICENSE: MIT
+
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
