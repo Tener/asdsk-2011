@@ -21,13 +21,13 @@ void print_help()
 {
   printf(
 "  USAGE:                           \n"
-"  pwz // control program options   \n" 
+"  pwz [control program options]    \n" 
 "                                   \n" 
 "  -l /path/to/control/socket       \n" 
-"  -i             - informacje      \n" 
-"  -a FOO         - dodaj FOO       \n" 
-"  -d FOO         - usuń FOO        \n" 
-"  -q             - zakończ demona  \n" 
+"  -i FOO         - info on FOO     \n" 
+"  -a FOO         - add FOO         \n" 
+"  -d FOO         - del FOO         \n" 
+"  -q             - quit daemon     \n" 
          );
 }
 
