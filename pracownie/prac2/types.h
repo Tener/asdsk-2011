@@ -28,6 +28,7 @@ typedef struct
   void * dest;
   unsigned char dest_mask;
   struct rtmsg * rtmsg_ptr;
+  int rtmsg_len;
 } rttable_entry;
 
 

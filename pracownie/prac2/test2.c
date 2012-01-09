@@ -176,14 +176,79 @@ int process_and_print()
     return 0;
   }
 
-  qsort( rtentry_array, count, sizeof(rttable_entry), entry_comparer );
 
-  for(i=0; i<count;i++)
-    {
-      show_route_type_short(rtentry_array[i].rtmsg_ptr->rtm_type);
-      show_route_scope_short(rtentry_array[i].rtmsg_ptr->rtm_scope);
-      show_route_protocol_short(rtentry_array[i].rtmsg_ptr->rtm_protocol);
-    }
+  void printdata()
+  {
+    for(i=0; i<count;i++)
+      {
+        bzero(dst_str, 128);
+        bzero(gw_str, 128);
+        bzero(ifc_str, 128);
+
+        show_route_type_short(rtentry_array[i].rtmsg_ptr->rtm_type);
+        show_route_scope_short(rtentry_array[i].rtmsg_ptr->rtm_scope);
+        show_route_protocol_short(rtentry_array[i].rtmsg_ptr->rtm_protocol);
+        printf(" ");
+
+        rtattr_ptr = (struct rtattr *) RTM_RTA(rtentry_array[i].rtmsg_ptr);
+        rtmsg_len = rtentry_array[i].rtmsg_len;
+
+        for(;RTA_OK(rtattr_ptr, rtmsg_len); rtattr_ptr = RTA_NEXT(rtattr_ptr, rtmsg_len)) {
+          const char * attr_name = attr_to_name_short(rtattr_ptr->rta_type);
+
+          switch(rtattr_ptr->rta_type) {
+          case RTA_DST:
+          case RTA_SRC:
+          case RTA_GATEWAY:
+          case RTA_PREFSRC:
+            {
+              char buf[128];
+              inet_ntop(rtmsg_ptr->rtm_family, RTA_DATA(rtattr_ptr), buf, 128);
+              printf("%s %s", attr_name, buf);
+            }
+            break;
+
+          case RTA_IIF:
+          case RTA_OIF:
+            {
+              printf("%s %d", attr_name, *((int *) RTA_DATA(rtattr_ptr)));
+            }
+            break;
+
+          case RTA_TABLE:     printf("%s", attr_name), show_route_table_short(rtmsg_ptr->rtm_table); break;
+
+          case RTA_UNSPEC:    
+          case RTA_PRIORITY:  
+          case RTA_METRICS:   
+          case RTA_MULTIPATH: 
+          case RTA_FLOW:      
+          case RTA_CACHEINFO: 
+          case RTA_MARK:
+          case RTA_PROTOINFO: 
+          case RTA_SESSION:   
+          case RTA_MP_ALGO:   
+            printf("%s", attr_name);
+            break;
+
+          default:
+            printf("Unkown attribute");
+            break;
+
+          }
+
+          printf(" -- ");
+        }
+        
+        printf("\n");
+      }
+  }
+
+  printf("\nUNSORTED: \n");
+  printdata();
+  qsort( rtentry_array, count, sizeof(rttable_entry), entry_comparer );
+  printf("\nSORTED: \n");
+  printdata();
+
 
   return 0;
 
@@ -268,7 +333,7 @@ int process_and_print()
 //      printf(" dev %s", ifc_str);
 //    }
 //    printf("\n");
-  }
+//  }
 }
 
 int main(int argc, char *argv[])

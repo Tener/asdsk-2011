@@ -8,6 +8,8 @@ void prepare_rttable_entry( struct rtmsg * rtmsg_ptr, rttable_entry * entry )
 
   struct rtattr * rtattr_ptr = (struct rtattr *) RTM_RTA(rtmsg_ptr);
   int rtmsg_len = RTM_PAYLOAD(nlmsg_ptr);
+  entry->rtmsg_len = rtmsg_len;
+
   for(;RTA_OK(rtattr_ptr, rtmsg_len); rtattr_ptr = RTA_NEXT(rtattr_ptr, rtmsg_len)) {
     switch(rtattr_ptr->rta_type)
       {
