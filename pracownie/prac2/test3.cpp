@@ -11,8 +11,17 @@
 #include <string.h>
 #include <stdlib.h>
 
+#include <boost/asio.hpp>
+#include <algorithm>
+#include <vector>
+#include <iostream>
+
+// using namespace std;
+// #include <boost/asio/ip/address.hpp>
+
 #include "types.h"
 #include "helpers.h"
+
 
 
 /**
@@ -224,8 +233,96 @@ void printdata()
  * Extract each route table entry and print
  */
 
+class Entry
+{
+public:
+  boost::asio::ip::address addr;
+  rttable_entry inner;
+
+  void print()
+  {
+        show_route_type_short(inner.rtmsg_ptr->rtm_type);
+        show_route_scope_short(inner.rtmsg_ptr->rtm_scope);
+        show_route_protocol_short(inner.rtmsg_ptr->rtm_protocol);
+        printf(" ");
+
+        rtattr_ptr = (struct rtattr *) RTM_RTA(inner.rtmsg_ptr);
+        rtmsg_len = inner.rtmsg_len;
+
+        for(; RTA_OK(rtattr_ptr, rtmsg_len); rtattr_ptr = RTA_NEXT(rtattr_ptr, rtmsg_len)) {
+            const char * attr_name = attr_to_name_short(rtattr_ptr->rta_type);
+
+            switch(rtattr_ptr->rta_type) {
+            case RTA_DST:
+            {
+                char buf[128];
+                inet_ntop(rtmsg_ptr->rtm_family, RTA_DATA(rtattr_ptr), buf, 128);
+                printf("%s/%d", buf, rtmsg_ptr->rtm_dst_len);
+            }
+            break;
+            case RTA_SRC:
+            case RTA_GATEWAY:
+            case RTA_PREFSRC:
+            {
+                char buf[128];
+                inet_ntop(rtmsg_ptr->rtm_family, RTA_DATA(rtattr_ptr), buf, 128);
+                printf("%s %s", attr_name, buf);
+            }
+            break;
+
+            case RTA_IIF:
+            case RTA_OIF:
+            {
+                printf("%s %d", attr_name, *((int *) RTA_DATA(rtattr_ptr)));
+            }
+            break;
+
+            case RTA_TABLE:
+              printf("%s", attr_name), show_route_table_short((enum rt_class_t)rtmsg_ptr->rtm_table);
+                break;
+
+            case RTA_UNSPEC:
+            case RTA_PRIORITY:
+            case RTA_METRICS:
+            case RTA_MULTIPATH:
+            case RTA_FLOW:
+            case RTA_CACHEINFO:
+            case RTA_MARK:
+            case RTA_PROTOINFO:
+            case RTA_SESSION:
+            case RTA_MP_ALGO:
+                printf("%s", attr_name);
+                break;
+
+            default:
+                printf("Unkown attribute");
+                break;
+
+            }
+
+            printf(" -- ");
+        }
+
+        printf("\n");
+  }
+
+//  static bool operator<(const Entry & a, const Entry & b)
+//  {
+//    return a.addr < b.addr;
+//  }
+
+};
+
+bool Entry_oper(const Entry & a, const Entry & b)
+{
+  return a.addr < b.addr;
+}
+
+
 int process_and_print()
 {
+    std::vector<Entry> ev;
+
     printf("\n");
     printf("/--- Protocol: [B]oot, [K]ernel, [S]tatic, [R]edirect, [G]ated,\n");
     printf("|    RDISC/ND R[A], [M]erit MRT, [Z]ebra, B[I]RD, R[o]uted, [X]ORP,\n");
@@ -242,16 +339,48 @@ int process_and_print()
 
     nlmsg_ptr = (struct nlmsghdr *) read_buffer;
     for(; NLMSG_OK(nlmsg_ptr, nlmsg_len); nlmsg_ptr = NLMSG_NEXT(nlmsg_ptr, nlmsg_len)) {
+        Entry e;
+
         rtmsg_ptr = (struct rtmsg *) NLMSG_DATA(nlmsg_ptr);
         prepare_rttable_entry( rtmsg_ptr, &(rtentry_array[i]) );
+
+        e.inner = rtmsg_ptr;
+        if (rtentry_array[i].dest)
+          {
+            char buf[128];
+            inet_ntop(rtentry_array[j].family, rtentry_array[j].dest, buf, 128);
+            e.addr = boost::asio::ip::address::from_string(buf);
+          }
+        ev.push_back(e);
+
         i++;
     }
 
-    printf("\nUNSORTED: \n");
-    printdata();
-    qsort( rtentry_array, count, sizeof(rttable_entry), entry_comparer );
-    printf("\nSORTED: \n");
-    printdata();
+//    for(int j=0; j<count; j++)
+//      {
+//        Entry e;
+//        e.inner = rtentry_array[j];
+//        if (rtentry_array[j].dest)
+//          {
+//            char buf[128];
+//            inet_ntop(rtentry_array[j].family, rtentry_array[j].dest, buf, 128);
+//            e.addr = boost::asio::ip::address::from_string(buf);
+//          }
+//        ev.push_back(e);
+//      }
+
+    sort(ev.begin(), ev.end(), Entry_oper);
+    
+    for(int i=0; i<count; i++)
+      {
+        ev[i].print();
+      }
+
+//    printf("\nUNSORTED: \n");
+//    printdata();
+//    qsort(rtentry_array, count, sizeof(rttable_entry), entry_comparer);
+//    printf("\nSORTED: \n");
+//    printdata();
 
 
     return 0;

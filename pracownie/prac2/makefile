@@ -1,5 +1,5 @@
 cpp:
-	g++ -ggdb -Wall test3.cpp
+	g++ -ggdb -Wall test3.cpp -lpthread -lboost_system -o test3
 
 all:
 	gcc test.c -o test

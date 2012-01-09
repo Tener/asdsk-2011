@@ -18,10 +18,11 @@ void prepare_rttable_entry( struct rtmsg * rtmsg_ptr, rttable_entry * entry )
           int addr_size = rtmsg_ptr->rtm_family == AF_INET ? 4 : 16;
           entry->dest = malloc(addr_size);
           memcpy(entry->dest, RTA_DATA(rtattr_ptr), addr_size);
-          entry->dest_mask = rtmsg_ptr->rtm_dst_len;
         }
       }
   }
+  
+  entry->dest_mask = rtmsg_ptr->rtm_dst_len;
 
 }
 
