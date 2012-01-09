@@ -26,14 +26,16 @@ void prepare_rttable_entry( struct rtmsg * rtmsg_ptr, rttable_entry * entry )
 }
 
 
+unsigned long long foo(unsigned long long v, int masklen)
+{
+  unsigned long long masking = -1;
+  masking = masking << (64-masklen);
+  return (v & masking);
+}
+
+
 ipv6_u masked_ipv6( ipv6_u a, int mask )
 {
-  unsigned long long foo(unsigned long long v, int masklen)
-  {
-    unsigned long long masking = -1;
-    masking = masking << (64-masklen);
-    return (v & masking);
-  }
 
   if (mask > 64)
     {

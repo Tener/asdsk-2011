@@ -1,5 +1,5 @@
 
-struct {
+struct netlink_req_s {
   struct nlmsghdr		nlmsg_info;
   struct rtmsg		rtmsg_info;
   char			buffer[2048];
