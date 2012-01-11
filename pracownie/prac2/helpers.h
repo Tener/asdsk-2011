@@ -1,3 +1,15 @@
+int count_messages()
+{ 
+  int i = 0;
+  int nlmsg_len_c=nlmsg_len;
+  struct nlmsghdr * nlmsg_ptr = (struct nlmsghdr *) read_buffer;
+  for(; NLMSG_OK(nlmsg_ptr, nlmsg_len_c); nlmsg_ptr = NLMSG_NEXT(nlmsg_ptr, nlmsg_len_c)) {
+    i++;
+  }
+
+  return i; 
+}
+
 void prepare_rttable_entry( struct rtmsg * rtmsg_ptr, rttable_entry * entry )
 {
   entry->dest = NULL;
@@ -30,87 +42,6 @@ void prepare_rttable_entry( struct rtmsg * rtmsg_ptr, rttable_entry * entry )
   }  
   entry->dest_mask = rtmsg_ptr->rtm_dst_len;
 }
-
-
-unsigned long long foo(unsigned long long v, int masklen)
-{
-  unsigned long long masking = -1;
-  masking = masking << (64-masklen);
-  return (v & masking);
-}
-
-
-ipv6_u masked_ipv6( ipv6_u a, int mask )
-{
-
-  if (mask > 64)
-    {
-      mask -= 64;
-      a.ip64[1] = foo(a.ip64[1], mask);
-    }
-  else
-    {
-      a.ip64[1] = 0;
-      a.ip64[0] = foo(a.ip64[0], mask);
-    }
-  return a;
-}
-
-int subsumes_ipv6( ipv6_masked a, ipv6_masked b )
-{
-  if (a.mask > b.mask)
-    {
-      return 0;
-    }
-
-  ipv6_u am = masked_ipv6( a.addr, a.mask );
-  ipv6_u bm = masked_ipv6( b.addr, a.mask );
-
-  return ((am.ip64[0] == bm.ip64[0]) && (am.ip64[1] == bm.ip64[1])) ? 1 : 0;
-}
-
-ipv6_u ipv4_to_ipv6( ipv4_u a )
-{
-  ipv6_u b;
-  b.ip32[0] = a.ip32;
-  b.ip32[1] = 0;
-  b.ip32[2] = 0;
-  b.ip32[3] = 0;
-  return b;
-}
-
-int compare_ipv6( ipv6_u a, ipv6_u b )
-{
-  if (a.ip64[0] < b.ip64[0])
-    {
-      return -1;
-    }
-  else if (a.ip64[0] > b.ip64[0])
-    {
-      return 1;
-    }
-  else
-    {
-      if (a.ip64[1] < b.ip64[1])
-        {
-          return -1;
-        }
-      else if (a.ip64[1] > b.ip64[1])
-        {
-          return 1;
-        }
-      else
-        {
-          return 0;
-        }
-    }
-}
-
-int compare_ipv4( ipv4_u a, ipv4_u b )
-{
-  return compare_ipv6(ipv4_to_ipv6(a), ipv4_to_ipv6(b));
-}
-
 
 void show_route_table(enum rt_class_t t)
 {
@@ -326,13 +257,3 @@ void show_route_protocol_short(unsigned char t)
 
 }
 
-int count_messages(){ 
-  int i = 0;
-  int nlmsg_len_c=nlmsg_len;
-  struct nlmsghdr * nlmsg_ptr = (struct nlmsghdr *) read_buffer;
-  for(; NLMSG_OK(nlmsg_ptr, nlmsg_len_c); nlmsg_ptr = NLMSG_NEXT(nlmsg_ptr, nlmsg_len_c)) {
-    i++;
-  }
-
-  return i; 
-}

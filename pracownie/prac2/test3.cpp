@@ -300,7 +300,7 @@ int process_and_print()
       }
     
     // wypisujemy
-    for(int i=0; i<count; i++)
+    for(int i=0; i<ev.size(); i++)
       {
         ev[i].print();
       }
