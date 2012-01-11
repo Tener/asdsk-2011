@@ -11,18 +11,14 @@
 #include <string.h>
 #include <stdlib.h>
 
-#include <boost/asio.hpp>
+// #include <boost/asio.hpp>
+#include <boost/asio/ip/address.hpp>
 #include <algorithm>
 #include <vector>
 #include <iostream>
 
-// using namespace std;
-// #include <boost/asio/ip/address.hpp>
-
 #include "types.h"
 #include "helpers.h"
-
-
 
 /**
  * Send a request to NETLINK to send the routing table
@@ -288,19 +284,19 @@ int process_and_print()
     for(unsigned int i=0; i<ev.size(); i++)
       {
         int max_indent = 0;
-        
+
         for(unsigned int j=0; j<i; j++)
           {
             if ((ev[j].subsumes(ev[i]))) // && (ev[j] != ev[i]))
               {
 #define max(a,b) a > b ? a : b
                 max_indent = max(max_indent, ev[j].indent+1);
-#undef max 
+#undef max
               }
           }
         ev[i].indent = max_indent;
       }
-    
+
     // wypisujemy
     for(unsigned int i=0; i<ev.size(); i++)
       {

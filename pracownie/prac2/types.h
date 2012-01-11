@@ -1,7 +1,7 @@
 struct netlink_req_s {
-  struct nlmsghdr		nlmsg_info;
-  struct rtmsg		rtmsg_info;
-  char			buffer[2048];
+  struct nlmsghdr  nlmsg_info;
+  struct rtmsg     rtmsg_info;
+  char             buffer[2048];
 } netlink_req;
 
 int fd;
@@ -17,7 +17,6 @@ int nlmsg_len;
 struct rtmsg *rtmsg_ptr;
 struct rtattr *rtattr_ptr;
 int rtmsg_len;
-//char temp_buffer[8192];
 int rtn;
 
 typedef struct
@@ -30,4 +29,3 @@ typedef struct
   struct rtmsg * rtmsg_ptr;
   int rtmsg_len;
 } rttable_entry;
-
