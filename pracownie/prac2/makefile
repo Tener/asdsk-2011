@@ -1,5 +1,5 @@
 cpp:
-	g++ -ggdb -Wall test3.cpp -lpthread -lboost_system -o test3
+	g++ -ggdb -Wall showroute.cpp -lpthread -lboost_system -o showroute
 
 all:
 	gcc test.c -o test
