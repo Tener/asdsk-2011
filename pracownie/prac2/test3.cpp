@@ -148,7 +148,7 @@ public:
         boost::asio::ip::address_v6::bytes_type a1 = addr.to_v6().to_bytes();
         boost::asio::ip::address_v6::bytes_type a2 = other.addr.to_v6().to_bytes();
         int mask_left = mask;
-        for(int i = 0; i < a1.size(); i++)
+        for(unsigned int i = 0; i < a1.size(); i++)
           {
             int tmp = (1 << std::max(0,std::min(mask_left,8)))-1;
             unsigned char apply_mask = tmp;
@@ -157,13 +157,14 @@ public:
             a2[i] &= apply_mask;
           }
         bool val = boost::asio::ip::address_v6(a1) == boost::asio::ip::address_v6(a2);
+        return val;
       }
     else
       {
         boost::asio::ip::address_v4::bytes_type a1 = addr.to_v4().to_bytes();
         boost::asio::ip::address_v4::bytes_type a2 = other.addr.to_v4().to_bytes();
         int mask_left = mask;
-        for(int i = 0; i < a1.size(); i++)
+        for(unsigned int i = 0; i < a1.size(); i++)
           {
             int tmp = (1 << std::max(0,std::min(mask_left,8)))-1;
             unsigned char apply_mask = tmp;
@@ -255,6 +256,7 @@ int process_and_print()
 {
     std::vector<Entry> ev;
 
+    unsigned int nlmsg_len_c = nlmsg_len;
 
     count = count_messages();
     int i = 0;
@@ -262,7 +264,7 @@ int process_and_print()
 
     // preparujemy wiadomości
     nlmsg_ptr = (struct nlmsghdr *) read_buffer;
-    for(; NLMSG_OK(nlmsg_ptr, nlmsg_len); nlmsg_ptr = NLMSG_NEXT(nlmsg_ptr, nlmsg_len)) {
+    for(; NLMSG_OK(nlmsg_ptr, nlmsg_len_c); nlmsg_ptr = NLMSG_NEXT(nlmsg_ptr, nlmsg_len_c)) {
         Entry e;
         rtmsg_ptr = (struct rtmsg *) NLMSG_DATA(nlmsg_ptr);
         prepare_rttable_entry( rtmsg_ptr, &(rtentry_array[i]) );
@@ -283,11 +285,11 @@ int process_and_print()
     sort(ev.begin(), ev.end(), Entry_oper);
 
     // dodajemy wcięcia
-    for(int i=0; i<ev.size(); i++)
+    for(unsigned int i=0; i<ev.size(); i++)
       {
         int max_indent = 0;
         
-        for(int j=0; j<i; j++)
+        for(unsigned int j=0; j<i; j++)
           {
             if ((ev[j].subsumes(ev[i]))) // && (ev[j] != ev[i]))
               {
@@ -300,7 +302,7 @@ int process_and_print()
       }
     
     // wypisujemy
-    for(int i=0; i<ev.size(); i++)
+    for(unsigned int i=0; i<ev.size(); i++)
       {
         ev[i].print();
       }

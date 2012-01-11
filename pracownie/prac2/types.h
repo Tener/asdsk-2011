@@ -1,4 +1,3 @@
-
 struct netlink_req_s {
   struct nlmsghdr		nlmsg_info;
   struct rtmsg		rtmsg_info;
@@ -32,22 +31,3 @@ typedef struct
   int rtmsg_len;
 } rttable_entry;
 
-
-typedef union
-{
-  unsigned char ip8[16];
-  unsigned int ip32[4];
-  unsigned long long ip64[2];
-} ipv6_u ;
-
-typedef union
-{
-  unsigned char ip8[4];
-  unsigned int ip32;
-} ipv4_u ;
-
-typedef struct
-{
-  ipv6_u addr;
-  int mask;
-} ipv6_masked;

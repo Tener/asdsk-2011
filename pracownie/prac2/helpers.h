@@ -1,7 +1,7 @@
 int count_messages()
 { 
   int i = 0;
-  int nlmsg_len_c=nlmsg_len;
+  unsigned int nlmsg_len_c=nlmsg_len;
   struct nlmsghdr * nlmsg_ptr = (struct nlmsghdr *) read_buffer;
   for(; NLMSG_OK(nlmsg_ptr, nlmsg_len_c); nlmsg_ptr = NLMSG_NEXT(nlmsg_ptr, nlmsg_len_c)) {
     i++;
