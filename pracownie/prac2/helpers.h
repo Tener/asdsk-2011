@@ -5,6 +5,7 @@ void prepare_rttable_entry( struct rtmsg * rtmsg_ptr, rttable_entry * entry )
   entry->rtmsg_ptr = rtmsg_ptr;
   entry->type = rtmsg_ptr->rtm_type;
   entry->family = rtmsg_ptr->rtm_family;
+  entry->gateway[0] = 0;
 
   struct rtattr * rtattr_ptr = (struct rtattr *) RTM_RTA(rtmsg_ptr);
   int rtmsg_len = RTM_PAYLOAD(nlmsg_ptr);
@@ -19,11 +20,15 @@ void prepare_rttable_entry( struct rtmsg * rtmsg_ptr, rttable_entry * entry )
           entry->dest = malloc(addr_size);
           memcpy(entry->dest, RTA_DATA(rtattr_ptr), addr_size);
         }
+        break;
+      case RTA_GATEWAY:
+        {
+          inet_ntop(rtmsg_ptr->rtm_family, RTA_DATA(rtattr_ptr), entry->gateway, 128);
+        }
+        break;
       }
-  }
-  
+  }  
   entry->dest_mask = rtmsg_ptr->rtm_dst_len;
-
 }
 
 

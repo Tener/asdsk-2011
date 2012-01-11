@@ -26,6 +26,7 @@ typedef struct
   char type;
   char family;
   void * dest;
+  char gateway[128];
   unsigned char dest_mask;
   struct rtmsg * rtmsg_ptr;
   int rtmsg_len;
